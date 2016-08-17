@@ -75,10 +75,10 @@ def main(argv=None):
 
     parser.add_option("-p", "--partfile", dest="partfile", type="string",
                       help="Supply output bed file name for partnered utrons")
-
     parser.add_option("-q", "--indivpartfile", dest="indivpartfile", type="string",
                       help="Supply output bed file name for individual partnered utrons")
- 
+    parser.add_option("-n", "--novel-file", dest="novelfile", type="string",
+                      help="Supply output bed file name for novel introns")
 
     # add common options (-h/--help, ...) and parse command line
     (options, args) = E.Start(parser, argv=argv)
@@ -87,7 +87,8 @@ def main(argv=None):
     individuals = []
     partnered = []
     individualpartnered = []
-   
+    novel = []
+
     db = PUtils.fetch_DataFrame(
         "SELECT match_gene_id,transcript_id FROM pruned_class",
         options.database)
@@ -101,13 +102,19 @@ def main(argv=None):
         transcript_ids = [transcript[0].transcript_id for transcript in gene]
 
         try:
-            geneids = set(db.loc[transcript_ids].matched_gene_ids)
+            geneids = set(db.loc[transcript_ids].match_gene_id)
         except KeyError:
             continue
         
+        geneids.discard(None)
+
         for geneid in geneids:  # get ensembl gene object from hashtable
             ens_gene = enshashtable[geneid]
             
+            ens_introns = set()
+            for transcript in ens_gene:
+                ens_introns.update(GTF.toIntronIntervals(transcript))
+
             for first, second in itertools.product(gene, ens_gene):
 
                 ens_CDS = GTF.asRanges(second, "CDS")
@@ -231,7 +238,26 @@ def main(argv=None):
                         outbed4["strand"] = gene[0][0].strand
                         outbed4["thickStart"] = ens_stop
                         individualpartnered.append(outbed4)
-                        
+                
+                if len(ens_introns) == 0:
+                    ens_starts, ens_ends = [], []
+                else:
+                    ens_starts, ens_ends = zip(*ens_introns)
+
+                novelEvents = [i for i in UTR3introns if
+                               i[0] not in ens_starts and
+                               i[1] not in ens_ends]
+                
+                for item in novelEvents:
+                    outbed5 = Bed.Bed()
+                    outbed5.fields = ['.']*4
+                    outbed5.fromIntervals([item])
+                    outbed5.contig = gene[0][0].contig
+                    outbed5["name"] = first[0].transcript_id + ":" + second[0].transcript_id
+                    outbed5["strand"] = gene[0][0].strand
+                    outbed5["thickStart"] = ens_stop
+                    novel.append(outbed5)
+
     with IOTools.openFile(options.outfile, "w") as outf:
         for line in outlines:
             outf.write(str(line)+"\n")
@@ -251,6 +277,10 @@ def main(argv=None):
             for line in individualpartnered:
                 outf4.write(str(line)+"\n")
 
+    if options.novelfile is not None:
+        with IOTools.openFile(options.novelfile, "w") as outf5:
+            for line in novel:
+                outf5.write(str(line)+"\n")
     # write footer and output benchmark information.
     E.Stop()
 
