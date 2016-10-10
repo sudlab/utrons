@@ -40,6 +40,8 @@ import CGAT.IOTools as IOTools
 import itertools
 import CGAT.Database as PUtils
 
+import pandas
+
 
 def getGeneTable(reffile):
     table = dict()
@@ -64,7 +66,7 @@ def main(argv=None):
     parser.add_option("-r", "--reffile", dest="reffile", type="string",
                       help="Supply reference gtf file name")
 
-    parser.add_option("-d", "--database", dest="database", type="string",
+    parser.add_option("-d", "--class-file", dest="classfile", type="string",
                       help="Supply database name")
 
     parser.add_option("-o", "--outfile", dest="outfile", type="string",
@@ -89,9 +91,7 @@ def main(argv=None):
     individualpartnered = []
     novel = []
 
-    db = PUtils.fetch_DataFrame(
-        "SELECT match_gene_id,transcript_id FROM pruned_class",
-        options.database)
+    db = pandas.read_csv(options.classfile, sep="\t")
 
     db = db.groupby("transcript_id").first()
 
@@ -102,15 +102,16 @@ def main(argv=None):
         transcript_ids = [transcript[0].transcript_id for transcript in gene]
 
         try:
-            geneids = set(db.loc[transcript_ids].match_gene_id)
+            geneids = set(db.loc[transcript_ids].match_gene_id.dropna())
         except KeyError:
             continue
         
         geneids.discard(None)
 
         for geneid in geneids:  # get ensembl gene object from hashtable
+
             ens_gene = enshashtable[geneid]
-            
+
             ens_introns = set()
             for transcript in ens_gene:
                 ens_introns.update(GTF.toIntronIntervals(transcript))
